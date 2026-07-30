@@ -17,9 +17,12 @@ export async function hashPassword(plainText: string): Promise<string> {
 }
 
 export default function PasswordLockModal({ mode, onSuccess, onCancel }: PasswordLockModalProps) {
-  const [password, setPassword] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [step, setStep] = useState<"enter" | "confirm">("enter");
+  const [step, setStep] = useState<"verify_current" | "enter_new" | "confirm_new">(
+    mode === "change" ? "verify_current" : "enter_new"
+  );
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [attempts, setAttempts] = useState(0);
@@ -47,20 +50,18 @@ export default function PasswordLockModal({ mode, onSuccess, onCancel }: Passwor
 
     if (lockoutRemaining > 0) return;
 
+    const storedHash = localStorage.getItem("focusflow-password-hash");
+    const legacyPwd = localStorage.getItem("focusflow-password") || localStorage.getItem("focusflow-pin");
+
     if (mode === "unlock") {
-      const storedHash = localStorage.getItem("focusflow-password-hash");
-      const legacyPwd = localStorage.getItem("focusflow-password") || localStorage.getItem("focusflow-pin");
-
-      const inputHash = await hashPassword(password);
-
+      const inputHash = await hashPassword(currentPassword);
       let isMatch = false;
+
       if (storedHash) {
         isMatch = inputHash === storedHash;
       } else if (legacyPwd) {
-        // Migration check for legacy unhashed password
-        isMatch = password === legacyPwd;
+        isMatch = currentPassword === legacyPwd;
         if (isMatch) {
-          // Auto-upgrade to SHA-256 hash!
           localStorage.setItem("focusflow-password-hash", inputHash);
           localStorage.removeItem("focusflow-password");
           localStorage.removeItem("focusflow-pin");
@@ -79,37 +80,63 @@ export default function PasswordLockModal({ mode, onSuccess, onCancel }: Passwor
         } else {
           setError(`Hatalı şifre! (Kalan deneme hakkı: ${5 - nextAttempts})`);
         }
-        setPassword("");
+        setCurrentPassword("");
       }
-    } else {
-      if (step === "enter") {
-        if (!password.trim()) {
-          setError("Lütfen geçerli bir şifre girin.");
-          return;
-        }
-        setStep("confirm");
+    } else if (mode === "change" && step === "verify_current") {
+      const inputHash = await hashPassword(currentPassword);
+      let isMatch = false;
+      if (storedHash) {
+        isMatch = inputHash === storedHash;
+      } else if (legacyPwd) {
+        isMatch = currentPassword === legacyPwd;
+      }
+
+      if (isMatch) {
+        setStep("enter_new");
       } else {
-        if (confirmPassword === password) {
-          const hashed = await hashPassword(password);
-          localStorage.setItem("focusflow-password-hash", hashed);
-          localStorage.removeItem("focusflow-password");
-          localStorage.removeItem("focusflow-pin");
-          onSuccess(password);
+        const nextAttempts = attempts + 1;
+        setAttempts(nextAttempts);
+        if (nextAttempts >= 5) {
+          setLockoutRemaining(30);
+          setError("5 kez hatalı şifre girildi! 30 saniye kilitlendiniz.");
         } else {
-          setError("Şifreler eşleşmedi! Baştan başlayın.");
-          setPassword("");
-          setConfirmPassword("");
-          setStep("enter");
+          setError(`Mevcut şifreniz hatalı! (Kalan deneme hakkı: ${5 - nextAttempts})`);
         }
+        setCurrentPassword("");
+      }
+    } else if (step === "enter_new") {
+      if (!newPassword.trim()) {
+        setError("Lütfen geçerli bir yeni şifre girin.");
+        return;
+      }
+      setStep("confirm_new");
+    } else if (step === "confirm_new") {
+      if (confirmPassword === newPassword) {
+        const hashed = await hashPassword(newPassword);
+        localStorage.setItem("focusflow-password-hash", hashed);
+        localStorage.removeItem("focusflow-password");
+        localStorage.removeItem("focusflow-pin");
+        onSuccess(newPassword);
+      } else {
+        setError("Yeni şifreler eşleşmedi! Tekrar deneyin.");
+        setNewPassword("");
+        setConfirmPassword("");
+        setStep("enter_new");
       }
     }
   };
 
-  const currentVal = step === "enter" ? password : confirmPassword;
-  const setCurrentVal = (val: string) => {
+  const getInputValue = () => {
+    if (mode === "unlock" || step === "verify_current") return currentPassword;
+    if (step === "enter_new") return newPassword;
+    return confirmPassword;
+  };
+
+  const setInputValue = (val: string) => {
     if (lockoutRemaining > 0) return;
     setError("");
-    if (step === "enter") setPassword(val);
+    if (mode === "unlock" || step === "verify_current") setCurrentPassword(val);
+    else if (step === "enter_new") setNewPassword(val);
     else setConfirmPassword(val);
   };
 
@@ -122,16 +149,26 @@ export default function PasswordLockModal({ mode, onSuccess, onCancel }: Passwor
         </div>
 
         <h2 className="text-xl font-bold tracking-tight text-ink">
-          {lockoutRemaining > 0 ? "Geçici Kilitlenme" : mode === "unlock" ? "Güvenlik Kilidi" : step === "enter" ? "Şifre Belirleyin" : "Şifreyi Tekrar Girin"}
+          {lockoutRemaining > 0
+            ? "Geçici Kilitlenme"
+            : mode === "unlock"
+            ? "Güvenlik Kilidi"
+            : step === "verify_current"
+            ? "Mevcut Şifrenizi Girin"
+            : step === "enter_new"
+            ? "Yeni Şifrenizi Belirleyin"
+            : "Yeni Şifreyi Tekrar Girin"}
         </h2>
         <p className="mt-1 text-xs text-muted">
           {lockoutRemaining > 0
             ? `Brute-force koruması aktif. ${lockoutRemaining} saniye sonra tekrar deneyin.`
             : mode === "unlock"
             ? "Uygulamaya erişmek için şifrenizi girin."
-            : step === "enter"
-            ? "İstediğiniz özel şifreyi yazın (SHA-256 ile saklanır)."
-            : "Doğrulamak için aynı şifreyi tekrar yazın."}
+            : step === "verify_current"
+            ? "Şifreyi değiştirebilmek için önce mevcut şifrenizi onaylayın."
+            : step === "enter_new"
+            ? "İstediğiniz yeni şifreyi yazın."
+            : "Doğrulamak için yeni şifrenizi tekrar yazın."}
         </p>
 
         <div className="relative my-6">
@@ -140,8 +177,8 @@ export default function PasswordLockModal({ mode, onSuccess, onCancel }: Passwor
             autoFocus
             disabled={lockoutRemaining > 0}
             required
-            value={currentVal}
-            onChange={e => setCurrentVal(e.target.value)}
+            value={getInputValue()}
+            onChange={e => setInputValue(e.target.value)}
             placeholder={lockoutRemaining > 0 ? "Kilitlendi..." : "Şifrenizi yazın..."}
             className="w-full rounded-2xl border border-line bg-page px-4 py-3.5 pr-11 text-center text-sm font-medium text-ink outline-none transition-all focus:border-accent focus:ring-2 focus:ring-accent/20 disabled:opacity-50"
           />
@@ -166,7 +203,7 @@ export default function PasswordLockModal({ mode, onSuccess, onCancel }: Passwor
             </button>
           )}
           <button type="submit" disabled={lockoutRemaining > 0} className={`${onCancel ? 'w-1/2' : 'w-full'} rounded-xl bg-accent py-3 text-sm font-medium text-white shadow-md transition-all hover:bg-accent-hover hover:shadow-lg disabled:opacity-50`}>
-            {mode === "unlock" ? "Giriş Yap" : step === "enter" ? "Devam Et" : "Şifreyi Kaydet"}
+            {mode === "unlock" ? "Giriş Yap" : step === "verify_current" ? "Şifreyi Onayla" : step === "enter_new" ? "Devam Et" : "Şifreyi Kaydet"}
           </button>
         </div>
       </motion.form>
