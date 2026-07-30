@@ -8,6 +8,7 @@ export const CLOUD_STORAGE_KEYS = [
   "focusflow-applications",
   "focusflow-roadmaps-v2",
   "focusflow-roadmaps",
+  "focusflow-shared-access",
 ] as const;
 
 export type CloudData = Record<string, string>;

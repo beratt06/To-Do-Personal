@@ -5,6 +5,51 @@ create table if not exists public.user_data (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.app_settings (
+  key text primary key,
+  value text not null,
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists public.shared_app_state (
+  id text primary key,
+  data jsonb not null default '{}'::jsonb,
+  updated_at timestamptz not null default now()
+);
+
+alter table public.app_settings enable row level security;
+alter table public.shared_app_state enable row level security;
+
+drop policy if exists "Users can read app settings" on public.app_settings;
+create policy "Users can read app settings"
+  on public.app_settings for select to authenticated
+  using (true);
+
+drop policy if exists "Users can manage app settings" on public.app_settings;
+create policy "Users can manage app settings"
+  on public.app_settings for insert to authenticated
+  with check (true);
+create policy "Users can update app settings"
+  on public.app_settings for update to authenticated
+  using (true)
+  with check (true);
+
+drop policy if exists "Anyone can read shared app state" on public.shared_app_state;
+create policy "Anyone can read shared app state"
+  on public.shared_app_state for select to anon, authenticated
+  using (true);
+
+drop policy if exists "Anyone can insert shared app state" on public.shared_app_state;
+create policy "Anyone can insert shared app state"
+  on public.shared_app_state for insert to anon, authenticated
+  with check (true);
+
+drop policy if exists "Anyone can update shared app state" on public.shared_app_state;
+create policy "Anyone can update shared app state"
+  on public.shared_app_state for update to anon, authenticated
+  using (true)
+  with check (true);
+
 alter table public.user_data enable row level security;
 
 drop policy if exists "Users can read their own FocusFlow data" on public.user_data;

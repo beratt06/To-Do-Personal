@@ -125,24 +125,82 @@ export default function Home() {
   const [authChecked, setAuthChecked] = useState(!isSupabaseConfigured);
   const [session, setSession] = useState<Session | null>(null);
   const [syncReady, setSyncReady] = useState(!isSupabaseConfigured);
+  const [sharedAccessGranted, setSharedAccessGranted] = useState(false);
 
   useEffect(() => {
-    if (!supabase) return;
-    supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setAuthChecked(true);
-    });
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
-      setSession(nextSession);
-      setAuthChecked(true);
-      if (!nextSession) setSyncReady(false);
-    });
-    return () => listener.subscription.unsubscribe();
+    const granted = typeof window !== "undefined" && window.localStorage.getItem("focusflow-shared-access") === "granted";
+    setSharedAccessGranted(granted);
+    if (granted) {
+      setSyncReady(true);
+    }
   }, []);
 
   useEffect(() => {
+    if (!supabase) {
+      setAuthChecked(true);
+      setSyncReady(true);
+      return;
+    }
+
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthChecked(true);
+      if (!data.session && sharedAccessGranted) {
+        setSyncReady(true);
+      }
+    });
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      setAuthChecked(true);
+      if (!nextSession) {
+        setSyncReady(sharedAccessGranted);
+      }
+    });
+    return () => listener.subscription.unsubscribe();
+  }, [sharedAccessGranted]);
+
+  useEffect(() => {
     const client = supabase;
-    if (!client || !session) return;
+    if (!client) {
+      setSyncReady(true);
+      return;
+    }
+
+    if (!session && !sharedAccessGranted) {
+      return;
+    }
+
+    if (!session && sharedAccessGranted) {
+      let cancelled = false;
+      const prepareSharedData = async () => {
+        setSyncReady(false);
+        const { data: row, error } = await client
+          .from("shared_app_state")
+          .select("data")
+          .eq("id", "shared")
+          .maybeSingle();
+        if (cancelled) return;
+        if (error) {
+          console.error("Shared Supabase data could not be loaded", error);
+        } else if (row?.data) {
+          applyCloudData(row.data);
+        } else {
+          if (!localStorage.getItem("focusflow-areas")) {
+            localStorage.setItem("focusflow-areas", JSON.stringify(defaultAreas));
+          }
+          await client.from("shared_app_state").upsert({ id: "shared", data: readCloudData(), updated_at: new Date().toISOString() });
+        }
+        if (!cancelled) setSyncReady(true);
+      };
+      void prepareSharedData();
+      return () => { cancelled = true; };
+    }
+
+    if (!session) {
+      return;
+    }
+
     let cancelled = false;
     const prepareCloudData = async () => {
       setSyncReady(false);
@@ -166,7 +224,7 @@ export default function Home() {
     };
     void prepareCloudData();
     return () => { cancelled = true; };
-  }, [session]);
+  }, [session, sharedAccessGranted]);
 
   const activeArea = areas.find(area => area.id === activeAreaId) || areas[0]; 
   const activeSub = activeArea?.subareas?.find(sub => sub.id === activeSubId) || activeArea?.subareas?.[0];
@@ -261,6 +319,35 @@ export default function Home() {
     };
   }, [syncReady]);
   
+  useEffect(() => {
+    const client = supabase;
+    if (!client || !sharedAccessGranted || session || !isLoaded) return;
+    let saving = false;
+    let previousSerialized = "";
+
+    const saveSharedData = async () => {
+      const data = readCloudData();
+      const serialized = JSON.stringify(data);
+      if (serialized === previousSerialized || saving) return;
+      saving = true;
+      const { error } = await client.from("shared_app_state").upsert({ id: "shared", data, updated_at: new Date().toISOString() });
+      if (!error) previousSerialized = serialized;
+      else console.error("Shared Supabase sync failed", error);
+      saving = false;
+    };
+
+    previousSerialized = JSON.stringify(readCloudData());
+    const interval = window.setInterval(saveSharedData, 1500);
+    const onHidden = () => { if (document.visibilityState === "hidden") void saveSharedData(); };
+    document.addEventListener("visibilitychange", onHidden);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener("visibilitychange", onHidden);
+      void saveSharedData();
+    };
+  }, [sharedAccessGranted, session, isLoaded]);
+
   useEffect(() => { 
     if (isLoaded) {
       const serialized = JSON.stringify(areas);
@@ -405,7 +492,7 @@ export default function Home() {
   }, [month]);
 
   if (!syncReady) {
-    if (isSupabaseConfigured && authChecked && !session) return <AuthGate />;
+    if (isSupabaseConfigured && authChecked && !session && !sharedAccessGranted) return <AuthGate />;
     return <main className="grid min-h-screen place-items-center bg-page text-muted">Veriler hazırlanıyor...</main>;
   }
 
