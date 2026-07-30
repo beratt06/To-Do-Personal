@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Download, Upload, RotateCcw, ShieldCheck, CheckCircle2, Lock, KeyRound, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import PinLockModal from "./PinLockModal";
+import { applyCloudData, readCloudData } from "../lib/cloud-storage";
 
 type Area = any; 
 
@@ -45,6 +46,13 @@ export default function SettingsTab({ areas, setAreas }: { areas: Area[], setAre
     if (confirm("Seçilen yedeği geri yüklemek istediğinize emin misiniz? Mevcut verilerinizin üzerine yazılacak.")) {
       try {
         const parsed = JSON.parse(data);
+        if (parsed?.focusflow && typeof parsed.focusflow === "object") {
+          applyCloudData(parsed.focusflow);
+          const areasData = parsed.focusflow["focusflow-areas"];
+          if (typeof areasData === "string") setAreas(JSON.parse(areasData));
+          showToast("Tüm uygulama verileri geri yüklendi!");
+          return;
+        }
         if (parsed && Array.isArray(parsed)) {
           setAreas(parsed);
           showToast("Yedek başarıyla geri yüklendi!");
@@ -57,7 +65,8 @@ export default function SettingsTab({ areas, setAreas }: { areas: Area[], setAre
 
   const handleExport = () => {
     try {
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(areas, null, 2));
+      const backup = { version: 2, exportedAt: new Date().toISOString(), focusflow: readCloudData() };
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backup, null, 2));
       const downloadAnchorNode = document.createElement("a");
       downloadAnchorNode.setAttribute("href", dataStr);
       downloadAnchorNode.setAttribute("download", `focusflow-yedek-${new Date().toISOString().slice(0, 10)}.json`);
@@ -83,9 +92,14 @@ export default function SettingsTab({ areas, setAreas }: { areas: Area[], setAre
       try {
         const result = event.target?.result as string;
         const parsed = JSON.parse(result);
-        if (parsed && Array.isArray(parsed)) {
+        const isFullBackup = parsed?.focusflow && typeof parsed.focusflow === "object";
+        if (isFullBackup || (parsed && Array.isArray(parsed))) {
           if (confirm("Bu dosyayı içe aktarmak, mevcut tüm verilerinizin üzerine yazacaktır. Onaylıyor musunuz?")) {
-            setAreas(parsed);
+            if (isFullBackup) {
+              applyCloudData(parsed.focusflow);
+              const areasData = parsed.focusflow["focusflow-areas"];
+              if (typeof areasData === "string") setAreas(JSON.parse(areasData));
+            } else setAreas(parsed);
             showToast("Veriler başarıyla içe aktarıldı!");
           }
         } else {

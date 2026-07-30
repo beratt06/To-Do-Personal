@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { Session } from "@supabase/supabase-js";
 import { CalendarDays, ChevronDown, ChevronRight, Check, Moon, Plus, Sun, X, Archive as ArchiveIcon, AlertCircle, Clock, Trash2, Edit3, Briefcase, LayoutDashboard, FileText, Settings, Lock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import NotesTab from "./components/NotesTab";
@@ -9,6 +10,10 @@ import DashboardTab from "./components/DashboardTab";
 import RoadmapsTab from "./components/RoadmapsTab";
 import SettingsTab from "./components/SettingsTab";
 import PinLockModal from "./components/PinLockModal";
+import AuthGate from "./components/AuthGate";
+import CloudSync from "./components/CloudSync";
+import { applyCloudData, readCloudData } from "./lib/cloud-storage";
+import { isSupabaseConfigured, supabase } from "./lib/supabase";
 
 type Priority = "low" | "medium" | "high";
 type Task = { id: number; text: string; dueDate?: string; dueDates?: string[]; done: boolean; archived?: boolean; completedAt?: string; priority?: Priority; noteHTML?: string };
@@ -117,6 +122,51 @@ export default function Home() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [hasPin, setHasPin] = useState(false);
+  const [authChecked, setAuthChecked] = useState(!isSupabaseConfigured);
+  const [session, setSession] = useState<Session | null>(null);
+  const [syncReady, setSyncReady] = useState(!isSupabaseConfigured);
+
+  useEffect(() => {
+    if (!supabase) return;
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthChecked(true);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      setAuthChecked(true);
+      if (!nextSession) setSyncReady(false);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  useEffect(() => {
+    const client = supabase;
+    if (!client || !session) return;
+    let cancelled = false;
+    const prepareCloudData = async () => {
+      setSyncReady(false);
+      const { data: row, error } = await client
+        .from("user_data")
+        .select("data")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+      if (cancelled) return;
+      if (error) {
+        console.error("Supabase data could not be loaded", error);
+      } else if (row?.data) {
+        applyCloudData(row.data);
+      } else {
+        if (!localStorage.getItem("focusflow-areas")) {
+          localStorage.setItem("focusflow-areas", JSON.stringify(defaultAreas));
+        }
+        await client.from("user_data").upsert({ user_id: session.user.id, data: readCloudData(), updated_at: new Date().toISOString() });
+      }
+      if (!cancelled) setSyncReady(true);
+    };
+    void prepareCloudData();
+    return () => { cancelled = true; };
+  }, [session]);
 
   const activeArea = areas.find(area => area.id === activeAreaId) || areas[0]; 
   const activeSub = activeArea?.subareas?.find(sub => sub.id === activeSubId) || activeArea?.subareas?.[0];
@@ -141,6 +191,7 @@ export default function Home() {
   const allActiveTasks = useMemo(() => areas.flatMap(area => area.subareas.flatMap(sub => sub.tasks.filter(task => !task.archived).map(task => ({ ...task, areaName: area.name, subName: sub.name })))), [areas]);
 
   useEffect(() => { 
+    if (!syncReady) return;
     const savedTheme = localStorage.getItem("focusflow-theme") || "dark"; 
     setTheme(savedTheme); 
     document.documentElement.classList.toggle("light", savedTheme === "light"); 
@@ -172,10 +223,11 @@ export default function Home() {
       }
     } 
     setIsLoaded(true);
-  }, []);
+  }, [syncReady]);
 
   // Security Hardening: Auto-lock when tab loses focus or on 5-minute idle timeout
   useEffect(() => {
+    if (!syncReady) return;
     let idleTimer: any;
 
     const resetIdleTimer = () => {
@@ -207,7 +259,7 @@ export default function Home() {
       window.removeEventListener("keydown", resetIdleTimer);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, []);
+  }, [syncReady]);
   
   useEffect(() => { 
     if (isLoaded) {
@@ -352,8 +404,14 @@ export default function Home() {
     }); 
   }, [month]);
 
+  if (!syncReady) {
+    if (isSupabaseConfigured && authChecked && !session) return <AuthGate />;
+    return <main className="grid min-h-screen place-items-center bg-page text-muted">Veriler hazırlanıyor...</main>;
+  }
+
   return (
     <main className="min-h-screen bg-page text-ink transition-colors duration-300">
+      {session && <CloudSync user={session.user} />}
       <AnimatePresence>
         {isLocked && (
           <PinLockModal mode="unlock" onSuccess={() => setIsLocked(false)} />

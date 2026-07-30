@@ -80,11 +80,28 @@ Bu komut projenizi kök dizindeki `/out` klasörüne statik web sitesi olarak de
 
 ---
 
+## ☁️ Supabase ile cihazlar arası senkronizasyon
+
+Supabase yapılandırılmadığında uygulama yerel depolama ile çalışmaya devam eder. Telefon ve bilgisayar arasında ortak veri için aşağıdaki kurulumu bir kez yapın:
+
+1. [Supabase](https://supabase.com/dashboard) üzerinde bir proje oluşturun. **SQL Editor**'de [schema.sql](supabase/schema.sql) dosyasının tamamını çalıştırın.
+2. Project Settings → API bölümündeki **Project URL** ve **anon public** anahtarını alın. `service_role` anahtarını kesinlikle kullanmayın.
+3. Yerelde `.env.local` oluşturup şunları ekleyin:
+
+```env
+NEXT_PUBLIC_SUPABASE_URL=https://proje-ref.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=anon-public-key
+NEXT_PUBLIC_FOCUSFLOW_LOGIN_EMAIL=senin-eposta-adresin@example.com
+```
+
+4. GitHub deposunda Settings → Secrets and variables → Actions altında aynı adlarla `NEXT_PUBLIC_SUPABASE_URL` ve `NEXT_PUBLIC_SUPABASE_ANON_KEY` secret'larını ekleyip tekrar deploy edin.
+5. Supabase Authentication → URL Configuration bölümünde Site URL ve Redirect URLs alanına GitHub Pages adresinizi ekleyin: `https://KULLANICI_ADI.github.io/To-Do-Personal/`.
+
+Canlı sitede ilk açılışta e-posta/parola ile hesap oluşturun. Aynı hesapla telefonunuzda giriş yaptığınızda görevler, notlar, başvurular, yol haritaları, yedekler ve uygulama kilidi eşitlenir. İlk hesabınızda mevcut tarayıcı verisi buluta aktarılır; diğer cihazlarda buluttaki veri açılır.
+
 ## 🔒 Gizlilik & Veri Mimarisi
 
-FocusFlow, **%100 Offline-First** mimariyle tasarlanmıştır:
-- Hiçbir veriniz üçüncü taraf sunuculara veya veritabanlarına gönderilmez.
-- Tüm alanlar, görevler, notlar ve şifre koruması doğrudan cihazınızın **`localStorage`** hafızasında güvenle tutulur.
+FocusFlow önce tarayıcıya kaydeder ve Supabase ayarlıysa aynı veriyi buluttaki kişisel kaydınıza da eşitler. Tablo üzerindeki RLS kuralları, yalnızca oturum açmış kullanıcının kendi kaydını okumasına veya değiştirmesine izin verir.
 
 ---
 
