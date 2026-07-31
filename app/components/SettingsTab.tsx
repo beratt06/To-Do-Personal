@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Download, Upload, RotateCcw, ShieldCheck, CheckCircle2, Lock, KeyRound, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import PinLockModal from "./PinLockModal";
+// PinLockModal (local device password) removed because shared password handled via Supabase
 import { applyCloudData, readCloudData } from "../lib/cloud-storage";
 
 type Area = any; 
@@ -15,7 +15,6 @@ export default function SettingsTab({ areas, setAreas }: { areas: Area[], setAre
   const [backups, setBackups] = useState<BackupLog[]>([]);
   const [toastMsg, setToastMsg] = useState("");
   const [hasPin, setHasPin] = useState(false);
-  const [showPinModal, setShowPinModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -134,17 +133,7 @@ export default function SettingsTab({ areas, setAreas }: { areas: Area[], setAre
         )}
       </AnimatePresence>
 
-      {showPinModal && (
-        <PinLockModal
-          mode={hasPin ? "change" : "setup"}
-          onSuccess={() => {
-            setShowPinModal(false);
-            checkPinStatus();
-            showToast(hasPin ? "Şifre değiştirildi!" : "Şifre koruması aktif edildi!");
-          }}
-          onCancel={() => setShowPinModal(false)}
-        />
-      )}
+      {/* Local PIN modal removed — use shared Supabase password instead */}
 
       <div>
         <p className="text-sm font-medium text-accent">Ayarlar & Güvenlik</p>
@@ -169,15 +158,8 @@ export default function SettingsTab({ areas, setAreas }: { areas: Area[], setAre
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
-            {hasPin && (
-              <button type="button" onClick={removePin} className="flex items-center gap-1.5 rounded-xl border border-line bg-page px-3.5 py-2 text-xs font-medium text-danger hover:bg-danger/10 transition-colors">
-                <Trash2 size={14} /> Kaldır
-              </button>
-            )}
-            <button type="button" onClick={() => setShowPinModal(true)} className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-medium text-white shadow-md hover:bg-accent-hover transition-all">
-              <KeyRound size={14} /> {hasPin ? "Şifre Değiştir" : "Şifre Koy"}
-            </button>
+          <div className="text-sm text-muted">
+            Ortak parola Supabase üzerinde ayarlı — yerel şifre yönetimi devre dışı bırakıldı.
           </div>
         </div>
       </section>
