@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { CalendarDays, ChevronDown, ChevronRight, Check, Moon, Plus, Sun, X, Archive as ArchiveIcon, AlertCircle, Clock, Trash2, Edit3, Briefcase, LayoutDashboard, FileText, Settings, Lock } from "lucide-react";
+import { CalendarDays, ChevronDown, ChevronRight, Check, Moon, Plus, Sun, X, Archive as ArchiveIcon, AlertCircle, Trash2, FileText, Settings, Lock, Pin, ArrowUp, ArrowDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import NotesTab from "./components/NotesTab";
 import ApplicationsTab from "./components/ApplicationsTab";
@@ -18,7 +18,7 @@ import { isSupabaseConfigured, supabase } from "./lib/supabase";
 type Priority = "low" | "medium" | "high";
 type Task = { id: number; text: string; dueDate?: string; dueDates?: string[]; done: boolean; archived?: boolean; completedAt?: string; priority?: Priority; noteHTML?: string };
 type SubArea = { id: number; name: string; tasks: Task[]; noteHTML?: string };
-type Area = { id: number; name: string; subareas: SubArea[]; lastAccessed?: number };
+type Area = { id: number; name: string; subareas: SubArea[]; lastAccessed?: number; pinned?: boolean; sortOrder?: number };
 type Tab = "dashboard" | "areas" | "calendar" | "archive" | "notes" | "applications" | "roadmaps" | "settings";
 type Modal = "area" | "subarea" | "task" | "day" | null;
 
@@ -27,17 +27,31 @@ const defaultAreas: Area[] = [
     id: 1, 
     name: "Siber Güvenlik", 
     subareas: [{ id: 11, name: "Network Security", tasks: [{ id: 1, text: "Firewall Kur", done: false, priority: "high", noteHTML: "<h1>Firewall Kurulumu</h1><p>iptables ve port yönlendirme notları...</p>" }] }],
-    lastAccessed: Date.now()
+    lastAccessed: Date.now(),
+    pinned: false,
+    sortOrder: 0
   },
   { 
     id: 2, 
     name: "Gömülü Sistemler", 
     subareas: [{ id: 21, name: "Genel", tasks: [{ id: 2, text: "Mikrodenetleyici programlama", done: false, priority: "medium" }] }],
-    lastAccessed: Date.now() - 1000
+    lastAccessed: Date.now() - 1000,
+    pinned: false,
+    sortOrder: 1
   },
-  { id: 3, name: "Yapay Zeka", subareas: [{ id: 31, name: "RAG ve LLM", tasks: [{ id: 3, text: "Transformer mimarisini tekrar et", dueDate: "2026-08-04", done: false, priority: "high" }] }] },
-  { id: 4, name: "Web Geliştirme", subareas: [{ id: 41, name: "Next.js", tasks: [{ id: 4, text: "API route testlerini yaz", dueDate: "2026-08-12", done: false, priority: "low" }] }] },
+  { id: 3, name: "Yapay Zeka", subareas: [{ id: 31, name: "RAG ve LLM", tasks: [{ id: 3, text: "Transformer mimarisini tekrar et", dueDate: "2026-08-04", done: false, priority: "high" }] }], pinned: false, sortOrder: 2 },
+  { id: 4, name: "Web Geliştirme", subareas: [{ id: 41, name: "Next.js", tasks: [{ id: 4, text: "API route testlerini yaz", dueDate: "2026-08-12", done: false, priority: "low" }] }], pinned: false, sortOrder: 3 },
 ];
+
+const sortAreas = (items: Area[]) => [...items].sort((a, b) => {
+  if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
+  const orderA = a.sortOrder ?? 0;
+  const orderB = b.sortOrder ?? 0;
+  if (orderA !== orderB) return orderA - orderB;
+  return (b.lastAccessed || 0) - (a.lastAccessed || 0);
+});
+
+const getNextAreaOrder = (items: Area[]) => items.reduce((max, item) => Math.max(max, item.sortOrder ?? -1), -1) + 1;
 
 const today = new Date();
 const dateKey = (date: Date) => { const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000); return local.toISOString().slice(0, 10); };
@@ -83,6 +97,8 @@ function migrateAreas(value: unknown): Area[] {
     id: area.id,
     name: area.name,
     lastAccessed: area.lastAccessed || (Date.now() - index * 1000), // preserve order for old data
+    pinned: Boolean(area.pinned),
+    sortOrder: typeof area.sortOrder === "number" ? area.sortOrder : index,
     subareas: (area.subareas || [{ id: Date.now(), name: "Genel", tasks: area.tasks || [] }]).map((sub: any) => ({
       id: sub.id,
       name: sub.name,
@@ -126,6 +142,7 @@ export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [syncReady, setSyncReady] = useState(!isSupabaseConfigured);
   const [sharedAccessGranted, setSharedAccessGranted] = useState(false);
+  const orderedAreas = useMemo(() => sortAreas(areas), [areas]);
 
   useEffect(() => {
     const granted = typeof window !== "undefined" && window.localStorage.getItem("focusflow-shared-access") === "granted";
@@ -243,7 +260,7 @@ export default function Home() {
     return () => { cancelled = true; };
   }, [session, sharedAccessGranted]);
 
-  const activeArea = areas.find(area => area.id === activeAreaId) || areas[0]; 
+  const activeArea = areas.find(area => area.id === activeAreaId) || orderedAreas[0]; 
   const activeSub = activeArea?.subareas?.find(sub => sub.id === activeSubId) || activeArea?.subareas?.[0];
   
   // Active tasks = NOT archived. Done tasks can still be active until archived.
@@ -262,8 +279,8 @@ export default function Home() {
       });
   }, [activeSub]);
 
-  const archivedTasks = useMemo(() => areas.flatMap(area => area.subareas.flatMap(sub => sub.tasks.filter(task => task.archived).map(task => ({ ...task, areaName: area.name, subName: sub.name })))).sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")), [areas]);
-  const allActiveTasks = useMemo(() => areas.flatMap(area => area.subareas.flatMap(sub => sub.tasks.filter(task => !task.archived).map(task => ({ ...task, areaName: area.name, subName: sub.name })))), [areas]);
+  const archivedTasks = useMemo(() => orderedAreas.flatMap(area => area.subareas.flatMap(sub => sub.tasks.filter(task => task.archived).map(task => ({ ...task, areaName: area.name, subName: sub.name })))).sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")), [orderedAreas]);
+  const allActiveTasks = useMemo(() => orderedAreas.flatMap(area => area.subareas.flatMap(sub => sub.tasks.filter(task => !task.archived).map(task => ({ ...task, areaName: area.name, subName: sub.name })))), [orderedAreas]);
 
   useEffect(() => { 
     if (!syncReady) return;
@@ -290,8 +307,9 @@ export default function Home() {
         } else if (parsed && Array.isArray(parsed) && parsed.length > 0) {
           const next = migrateAreas(parsed); 
           setAreas(next); 
-          setActiveAreaId(next[0]?.id || 1); 
-          setActiveSubId(next[0]?.subareas[0]?.id || 0); 
+          const primary = sortAreas(next)[0];
+          setActiveAreaId(primary?.id || 1); 
+          setActiveSubId(primary?.subareas[0]?.id || 0); 
         }
       } catch (e) {
         console.error("Failed to parse areas from localStorage", e);
@@ -435,13 +453,44 @@ export default function Home() {
     playSound("delete");
     setAreas(current => {
       const next = current.filter(a => a.id !== areaId);
+      const nextSorted = sortAreas(next);
       if (activeAreaId === areaId) {
-        setActiveAreaId(next[0]?.id || 0);
-        setActiveSubId(next[0]?.subareas[0]?.id || 0);
+        setActiveAreaId(nextSorted[0]?.id || 0);
+        setActiveSubId(nextSorted[0]?.subareas[0]?.id || 0);
       }
       return next;
     });
     notify("Çalışma alanı silindi");
+  };
+
+  const pinArea = (areaId: number) => {
+    setAreas(current => {
+      const target = current.find(area => area.id === areaId);
+      if (!target) return current;
+      const nextTopOrder = current.reduce((min, item) => Math.min(min, item.sortOrder ?? 0), 0) - 1;
+      return current.map(area => area.id === areaId ? {
+        ...area,
+        pinned: !area.pinned,
+        sortOrder: area.pinned ? area.sortOrder : nextTopOrder,
+      } : area);
+    });
+  };
+
+  const moveArea = (areaId: number, direction: -1 | 1) => {
+    setAreas(current => {
+      const ordered = sortAreas(current);
+      const index = ordered.findIndex(area => area.id === areaId);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= ordered.length) return current;
+
+      const currentArea = ordered[index];
+      const nextArea = ordered[nextIndex];
+      return current.map(area => {
+        if (area.id === currentArea.id) return { ...area, sortOrder: nextArea.sortOrder ?? nextIndex };
+        if (area.id === nextArea.id) return { ...area, sortOrder: currentArea.sortOrder ?? index };
+        return area;
+      });
+    });
   };
 
   const deleteSubarea = (subId: number) => {
@@ -468,7 +517,7 @@ export default function Home() {
   const saveModal = () => { 
     const value = name.trim(); 
     if (modal === "area" && value) { 
-      const next = { id: Date.now(), name: value, subareas: [], lastAccessed: Date.now() }; 
+      const next = { id: Date.now(), name: value, subareas: [], lastAccessed: Date.now(), pinned: false, sortOrder: getNextAreaOrder(areas) }; 
       setAreas(current => [...current, next]); 
       chooseArea(next.id); 
       playSound("dink");
@@ -581,7 +630,7 @@ export default function Home() {
           <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
             <DashboardTab 
               tasks={allActiveTasks} 
-              areas={areas} 
+              areas={orderedAreas} 
               archivedTasks={archivedTasks} 
               openModal={openModal} 
               toggleTask={toggleTask} 
@@ -604,26 +653,42 @@ export default function Home() {
             
             <div className="grid gap-8 lg:grid-cols-[280px_1fr]">
               <aside className="space-y-3">
-                {[...areas].sort((a, b) => (b.lastAccessed || 0) - (a.lastAccessed || 0)).map(area => {
+                {orderedAreas.map((area, index) => {
                   let total = 0; let done = 0;
                   area.subareas.forEach(s => { total += s.tasks.length; done += s.tasks.filter(t => t.done || t.archived).length; });
                   const perc = total === 0 ? 0 : Math.round((done/total)*100);
                   
                   return (
                     <button type="button" key={area.id} onClick={() => chooseArea(area.id)} className={`group w-full flex flex-col gap-3 rounded-2xl px-5 py-4 text-left transition-all ${activeAreaId === area.id ? "bg-card text-ink shadow-sm border border-line" : "bg-card/50 text-muted hover:bg-card hover:text-ink border border-transparent"}`}>
-                      <div className="flex items-center gap-3 w-full">
-                        <span className={`h-2.5 w-2.5 rounded-full shrink-0 ${activeAreaId === area.id ? "bg-accent" : "bg-muted/50"}`} />
-                        <div className="flex-1 font-semibold flex items-center justify-between min-w-0">
-                          <span className="truncate">{area.name}</span>
-                          <span className="text-[10px] text-muted font-normal bg-page/80 px-2 py-0.5 rounded-full border border-line/50 shrink-0 ml-2">{total - done} görev</span>
+                      <div className="flex items-start gap-3 w-full">
+                        <span className={`mt-1 h-2.5 w-2.5 rounded-full shrink-0 ${activeAreaId === area.id ? "bg-accent" : "bg-muted/50"}`} />
+                        <div className="flex-1 min-w-0 space-y-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate font-semibold">{area.name}</span>
+                            <span className="text-[10px] text-muted font-normal bg-page/80 px-2 py-0.5 rounded-full border border-line/50 shrink-0">{total - done} görev</span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                            {area.pinned && <span className="inline-flex items-center gap-1 rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-accent"><Pin size={10} /> Sabit</span>}
+                            <span className="rounded-full border border-line/50 bg-page/70 px-2 py-0.5">Sıra {index + 1}</span>
+                          </div>
                         </div>
                         <ChevronRight size={16} className={activeAreaId === area.id ? "opacity-100" : "opacity-0 transition-opacity group-hover:opacity-100"} />
                       </div>
-                      <div className="w-full flex items-center gap-3">
+                      <div className="w-full flex items-center justify-between gap-3">
                         <div className="flex-1 h-1.5 bg-line rounded-full overflow-hidden">
                           <div className={`h-full rounded-full transition-all duration-1000 ${activeAreaId === area.id ? "bg-accent" : "bg-muted/50"}`} style={{ width: `${perc}%` }} />
                         </div>
-                        <span className="text-[10px] font-bold">{perc}%</span>
+                        <div className="flex items-center gap-1">
+                          <button type="button" onClick={event => { event.stopPropagation(); pinArea(area.id); }} className={`rounded-lg border px-2 py-1.5 transition-colors ${area.pinned ? "border-accent/20 bg-accent/10 text-accent" : "border-line bg-page text-muted hover:text-ink hover:bg-hover"}`} title={area.pinned ? "Sabitlemeyi kaldır" : "Yukarı sabitle"}>
+                            <Pin size={12} />
+                          </button>
+                          <button type="button" onClick={event => { event.stopPropagation(); moveArea(area.id, -1); }} disabled={index === 0} className="rounded-lg border border-line bg-page px-2 py-1.5 text-muted transition-colors hover:text-ink hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40" title="Yukarı taşı">
+                            <ArrowUp size={12} />
+                          </button>
+                          <button type="button" onClick={event => { event.stopPropagation(); moveArea(area.id, 1); }} disabled={index === orderedAreas.length - 1} className="rounded-lg border border-line bg-page px-2 py-1.5 text-muted transition-colors hover:text-ink hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40" title="Aşağı taşı">
+                            <ArrowDown size={12} />
+                          </button>
+                        </div>
                       </div>
                     </button>
                   );
