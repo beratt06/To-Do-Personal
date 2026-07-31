@@ -195,7 +195,13 @@ export default function Home() {
           setSharedAccessGranted(false);
         } else if (sharedData && typeof sharedData === "object") {
           // get_shared_state returns JSON payload directly, not { data: ... }
-          applyCloudData(sharedData);
+          // Guard against malformed payloads (e.g. test objects) that would clear FocusFlow keys.
+          const payload = sharedData as Record<string, unknown>;
+          if (typeof payload["focusflow-areas"] === "string") {
+            applyCloudData(payload);
+          } else {
+            console.warn("Shared payload is missing focusflow-areas; skipping cloud apply", payload);
+          }
         } else {
           if (!localStorage.getItem("focusflow-areas")) {
             localStorage.setItem("focusflow-areas", JSON.stringify(defaultAreas));
