@@ -178,16 +178,24 @@ export default function Home() {
         const pwd = sessionStorage.getItem("focusflow-shared-password") || undefined;
         if (!pwd) {
           console.error("Shared password missing from sessionStorage");
+          localStorage.removeItem("focusflow-shared-access");
+          setSharedAccessGranted(false);
           setSyncReady(true);
           return;
         }
 
-        const { data: row, error } = await client.rpc("get_shared_state", { pwd });
+        const { data: sharedData, error } = await client.rpc("get_shared_state", { pwd });
         if (cancelled) return;
         if (error) {
           console.error("Shared Supabase data could not be loaded", error);
-        } else if (row?.data) {
-          applyCloudData(row.data);
+        } else if (sharedData === null) {
+          console.error("Shared password validation failed while loading shared data");
+          localStorage.removeItem("focusflow-shared-access");
+          sessionStorage.removeItem("focusflow-shared-password");
+          setSharedAccessGranted(false);
+        } else if (sharedData && typeof sharedData === "object") {
+          // get_shared_state returns JSON payload directly, not { data: ... }
+          applyCloudData(sharedData);
         } else {
           if (!localStorage.getItem("focusflow-areas")) {
             localStorage.setItem("focusflow-areas", JSON.stringify(defaultAreas));
@@ -336,6 +344,8 @@ export default function Home() {
       const pwd = sessionStorage.getItem("focusflow-shared-password") || undefined;
       if (!pwd) {
         console.error("Shared password missing from sessionStorage");
+        localStorage.removeItem("focusflow-shared-access");
+        setSharedAccessGranted(false);
         saving = false;
         return;
       }
