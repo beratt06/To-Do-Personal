@@ -20,8 +20,17 @@ export default function AuthGate() {
       return;
     }
 
-    window.localStorage.setItem("focusflow-shared-access", "granted");
-    window.location.reload();
+    // Store granted flag and the plaintext password in sessionStorage (cleared on tab close)
+    // We need the password to call secure RPCs that access shared state; keeping it in
+    // sessionStorage limits exposure compared to persistent localStorage.
+    try {
+      sessionStorage.setItem("focusflow-shared-password", password);
+      window.localStorage.setItem("focusflow-shared-access", "granted");
+      window.location.reload();
+    } catch (e) {
+      console.error("Failed to persist shared access", e);
+      setMessage("Giriş işlemi yapılamadı. Tarayıcı izinlerini kontrol et.");
+    }
   };
 
   return (

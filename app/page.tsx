@@ -175,11 +175,14 @@ export default function Home() {
       let cancelled = false;
       const prepareSharedData = async () => {
         setSyncReady(false);
-        const { data: row, error } = await client
-          .from("shared_app_state")
-          .select("data")
-          .eq("id", "shared")
-          .maybeSingle();
+        const pwd = sessionStorage.getItem("focusflow-shared-password") || undefined;
+        if (!pwd) {
+          console.error("Shared password missing from sessionStorage");
+          setSyncReady(true);
+          return;
+        }
+
+        const { data: row, error } = await client.rpc("get_shared_state", { pwd });
         if (cancelled) return;
         if (error) {
           console.error("Shared Supabase data could not be loaded", error);
@@ -189,7 +192,7 @@ export default function Home() {
           if (!localStorage.getItem("focusflow-areas")) {
             localStorage.setItem("focusflow-areas", JSON.stringify(defaultAreas));
           }
-          await client.from("shared_app_state").upsert({ id: "shared", data: readCloudData(), updated_at: new Date().toISOString() });
+          await client.rpc("upsert_shared_state", { pwd, payload: readCloudData() });
         }
         if (!cancelled) setSyncReady(true);
       };
@@ -330,9 +333,19 @@ export default function Home() {
       const serialized = JSON.stringify(data);
       if (serialized === previousSerialized || saving) return;
       saving = true;
-      const { error } = await client.from("shared_app_state").upsert({ id: "shared", data, updated_at: new Date().toISOString() });
-      if (!error) previousSerialized = serialized;
-      else console.error("Shared Supabase sync failed", error);
+      const pwd = sessionStorage.getItem("focusflow-shared-password") || undefined;
+      if (!pwd) {
+        console.error("Shared password missing from sessionStorage");
+        saving = false;
+        return;
+      }
+      try {
+        const { error } = await client.rpc("upsert_shared_state", { pwd, payload: data });
+        if (!error) previousSerialized = serialized;
+        else console.error("Shared Supabase sync failed", error);
+      } catch (e) {
+        console.error("Shared Supabase RPC error", e);
+      }
       saving = false;
     };
 
