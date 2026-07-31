@@ -6,6 +6,17 @@ type Task = { id: number; text: string; dueDate?: string; dueDates?: string[]; d
 type SubArea = { id: number; name: string; tasks: Task[]; noteHTML?: string };
 type Area = { id: number; name: string; subareas: SubArea[] };
 
+const AREA_TONES = [
+  { dot: "bg-sky-400", fill: "bg-sky-400", wash: "bg-sky-400/10", ring: "ring-sky-400/20" },
+  { dot: "bg-emerald-400", fill: "bg-emerald-400", wash: "bg-emerald-400/10", ring: "ring-emerald-400/20" },
+  { dot: "bg-amber-400", fill: "bg-amber-400", wash: "bg-amber-400/10", ring: "ring-amber-400/20" },
+  { dot: "bg-rose-400", fill: "bg-rose-400", wash: "bg-rose-400/10", ring: "ring-rose-400/20" },
+  { dot: "bg-cyan-400", fill: "bg-cyan-400", wash: "bg-cyan-400/10", ring: "ring-cyan-400/20" },
+  { dot: "bg-violet-400", fill: "bg-violet-400", wash: "bg-violet-400/10", ring: "ring-violet-400/20" },
+] as const;
+
+const getAreaTone = (areaId: number) => AREA_TONES[(areaId - 1) % AREA_TONES.length];
+
 export default function DashboardTab({ 
   tasks, 
   areas, 
@@ -119,16 +130,20 @@ export default function DashboardTab({
                     done += sub.tasks.filter(t => t.done || t.archived).length;
                   });
                   const percentage = total === 0 ? 0 : Math.round((done / total) * 100);
+                  const tone = getAreaTone(area.id);
                   
                   return (
                     <div key={area.id} className="space-y-2">
                       <div className="flex justify-between text-sm font-medium">
-                        <span className="text-ink truncate pr-2">{area.name}</span>
-                        <span className="text-muted shrink-0">{percentage}%</span>
+                        <span className="text-ink truncate pr-2 flex items-center gap-2">
+                          <span className={`h-2.5 w-2.5 rounded-full ${tone.dot}`} />
+                          {area.name}
+                        </span>
+                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide ${tone.wash} ${tone.ring}`}>{percentage}%</span>
                       </div>
                       <div className="h-2 w-full bg-line rounded-full overflow-hidden">
                         <div 
-                          className="h-full bg-accent rounded-full transition-all duration-1000 ease-out" 
+                          className={`h-full rounded-full transition-all duration-1000 ease-out ${tone.fill}`} 
                           style={{ width: `${percentage}%` }}
                         />
                       </div>

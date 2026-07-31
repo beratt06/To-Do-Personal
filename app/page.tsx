@@ -18,7 +18,7 @@ import { isSupabaseConfigured, supabase } from "./lib/supabase";
 type Priority = "low" | "medium" | "high";
 type Task = { id: number; text: string; dueDate?: string; dueDates?: string[]; done: boolean; archived?: boolean; completedAt?: string; priority?: Priority; noteHTML?: string };
 type SubArea = { id: number; name: string; tasks: Task[]; noteHTML?: string };
-type Area = { id: number; name: string; subareas: SubArea[]; lastAccessed?: number; pinned?: boolean; sortOrder?: number };
+type Area = { id: number; name: string; subareas: SubArea[]; lastAccessed?: number; pinned?: boolean; sortOrder?: number; sortMode?: "auto" | "manual" };
 type Tab = "dashboard" | "areas" | "calendar" | "archive" | "notes" | "applications" | "roadmaps" | "settings";
 type Modal = "area" | "subarea" | "task" | "day" | null;
 
@@ -29,7 +29,7 @@ const defaultAreas: Area[] = [
     subareas: [{ id: 11, name: "Network Security", tasks: [{ id: 1, text: "Firewall Kur", done: false, priority: "high", noteHTML: "<h1>Firewall Kurulumu</h1><p>iptables ve port yönlendirme notları...</p>" }] }],
     lastAccessed: Date.now(),
     pinned: false,
-    sortOrder: 0
+    sortMode: "auto"
   },
   { 
     id: 2, 
@@ -37,21 +37,50 @@ const defaultAreas: Area[] = [
     subareas: [{ id: 21, name: "Genel", tasks: [{ id: 2, text: "Mikrodenetleyici programlama", done: false, priority: "medium" }] }],
     lastAccessed: Date.now() - 1000,
     pinned: false,
-    sortOrder: 1
+    sortMode: "auto"
   },
-  { id: 3, name: "Yapay Zeka", subareas: [{ id: 31, name: "RAG ve LLM", tasks: [{ id: 3, text: "Transformer mimarisini tekrar et", dueDate: "2026-08-04", done: false, priority: "high" }] }], pinned: false, sortOrder: 2 },
-  { id: 4, name: "Web Geliştirme", subareas: [{ id: 41, name: "Next.js", tasks: [{ id: 4, text: "API route testlerini yaz", dueDate: "2026-08-12", done: false, priority: "low" }] }], pinned: false, sortOrder: 3 },
+  { id: 3, name: "Yapay Zeka", subareas: [{ id: 31, name: "RAG ve LLM", tasks: [{ id: 3, text: "Transformer mimarisini tekrar et", dueDate: "2026-08-04", done: false, priority: "high" }] }], pinned: false, sortMode: "auto" },
+  { id: 4, name: "Web Geliştirme", subareas: [{ id: 41, name: "Next.js", tasks: [{ id: 4, text: "API route testlerini yaz", dueDate: "2026-08-12", done: false, priority: "low" }] }], pinned: false, sortMode: "auto" },
 ];
+
+const AREA_TONES = [
+  { badge: "bg-sky-400/15 text-sky-300 border-sky-400/25", dot: "bg-sky-400", fill: "bg-sky-400", wash: "bg-sky-400/5", ring: "ring-sky-400/20" },
+  { badge: "bg-emerald-400/15 text-emerald-300 border-emerald-400/25", dot: "bg-emerald-400", fill: "bg-emerald-400", wash: "bg-emerald-400/5", ring: "ring-emerald-400/20" },
+  { badge: "bg-amber-400/15 text-amber-300 border-amber-400/25", dot: "bg-amber-400", fill: "bg-amber-400", wash: "bg-amber-400/5", ring: "ring-amber-400/20" },
+  { badge: "bg-rose-400/15 text-rose-300 border-rose-400/25", dot: "bg-rose-400", fill: "bg-rose-400", wash: "bg-rose-400/5", ring: "ring-rose-400/20" },
+  { badge: "bg-cyan-400/15 text-cyan-300 border-cyan-400/25", dot: "bg-cyan-400", fill: "bg-cyan-400", wash: "bg-cyan-400/5", ring: "ring-cyan-400/20" },
+  { badge: "bg-violet-400/15 text-violet-300 border-violet-400/25", dot: "bg-violet-400", fill: "bg-violet-400", wash: "bg-violet-400/5", ring: "ring-violet-400/20" },
+] as const;
+
+const getAreaTone = (areaId: number) => AREA_TONES[(areaId - 1) % AREA_TONES.length];
+
+const getAreaTaskCount = (area: Area) => area.subareas.reduce((count, subarea) => count + subarea.tasks.length, 0);
+
+const sortSubareas = (items: SubArea[]) => [...items].sort((a, b) => {
+  const countA = a.tasks.length;
+  const countB = b.tasks.length;
+  if (countA !== countB) return countB - countA;
+  return a.name.localeCompare(b.name, "tr-TR");
+});
 
 const sortAreas = (items: Area[]) => [...items].sort((a, b) => {
   if (Boolean(a.pinned) !== Boolean(b.pinned)) return a.pinned ? -1 : 1;
-  const orderA = a.sortOrder ?? 0;
-  const orderB = b.sortOrder ?? 0;
-  if (orderA !== orderB) return orderA - orderB;
+
+  const aManual = a.sortMode === "manual";
+  const bManual = b.sortMode === "manual";
+  if (aManual !== bManual) return aManual ? -1 : 1;
+
+  if (aManual && bManual) {
+    const orderA = a.sortOrder ?? 0;
+    const orderB = b.sortOrder ?? 0;
+    if (orderA !== orderB) return orderA - orderB;
+    return (b.lastAccessed || 0) - (a.lastAccessed || 0);
+  }
+
+  const taskCountDiff = getAreaTaskCount(b) - getAreaTaskCount(a);
+  if (taskCountDiff !== 0) return taskCountDiff;
   return (b.lastAccessed || 0) - (a.lastAccessed || 0);
 });
-
-const getNextAreaOrder = (items: Area[]) => items.reduce((max, item) => Math.max(max, item.sortOrder ?? -1), -1) + 1;
 
 const today = new Date();
 const dateKey = (date: Date) => { const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000); return local.toISOString().slice(0, 10); };
@@ -98,7 +127,8 @@ function migrateAreas(value: unknown): Area[] {
     name: area.name,
     lastAccessed: area.lastAccessed || (Date.now() - index * 1000), // preserve order for old data
     pinned: Boolean(area.pinned),
-    sortOrder: typeof area.sortOrder === "number" ? area.sortOrder : index,
+    sortOrder: typeof area.sortOrder === "number" ? area.sortOrder : undefined,
+    sortMode: area.sortMode === "manual" || typeof area.sortOrder === "number" ? "manual" : "auto",
     subareas: (area.subareas || [{ id: Date.now(), name: "Genel", tasks: area.tasks || [] }]).map((sub: any) => ({
       id: sub.id,
       name: sub.name,
@@ -261,7 +291,8 @@ export default function Home() {
   }, [session, sharedAccessGranted]);
 
   const activeArea = areas.find(area => area.id === activeAreaId) || orderedAreas[0]; 
-  const activeSub = activeArea?.subareas?.find(sub => sub.id === activeSubId) || activeArea?.subareas?.[0];
+  const orderedSubareas = useMemo(() => sortSubareas(activeArea?.subareas || []), [activeArea]);
+  const activeSub = orderedSubareas.find(sub => sub.id === activeSubId) || orderedSubareas[0];
   
   // Active tasks = NOT archived. Done tasks can still be active until archived.
   const activeTasks = useMemo(() => {
@@ -415,7 +446,7 @@ export default function Home() {
   const chooseArea = (id: number) => { 
     const next = areas.find(area => area.id === id); 
     setActiveAreaId(id); 
-    setActiveSubId(next?.subareas[0]?.id || 0); 
+    setActiveSubId(sortSubareas(next?.subareas || [])[0]?.id || 0); 
     setSubView("tasks");
   };
   
@@ -465,13 +496,11 @@ export default function Home() {
 
   const pinArea = (areaId: number) => {
     setAreas(current => {
-      const target = current.find(area => area.id === areaId);
-      if (!target) return current;
-      const nextTopOrder = current.reduce((min, item) => Math.min(min, item.sortOrder ?? 0), 0) - 1;
       return current.map(area => area.id === areaId ? {
         ...area,
         pinned: !area.pinned,
-        sortOrder: area.pinned ? area.sortOrder : nextTopOrder,
+        sortMode: "manual",
+        sortOrder: typeof area.sortOrder === "number" ? area.sortOrder : 0,
       } : area);
     });
   };
@@ -479,15 +508,30 @@ export default function Home() {
   const moveArea = (areaId: number, direction: -1 | 1) => {
     setAreas(current => {
       const ordered = sortAreas(current);
-      const index = ordered.findIndex(area => area.id === areaId);
-      const nextIndex = index + direction;
-      if (index < 0 || nextIndex < 0 || nextIndex >= ordered.length) return current;
+      const movingArea = ordered.find(area => area.id === areaId);
+      if (!movingArea) return current;
 
-      const currentArea = ordered[index];
-      const nextArea = ordered[nextIndex];
+      const manualAreas = ordered.filter(area => area.pinned || area.sortMode === "manual");
+      const manualIndex = manualAreas.findIndex(area => area.id === areaId);
+
+      if (manualIndex === -1) {
+        const manualOrders = manualAreas.map(area => area.sortOrder ?? 0);
+        const topOrder = manualOrders.length > 0 ? Math.min(...manualOrders) - 1 : 0;
+        const bottomOrder = manualOrders.length > 0 ? Math.max(...manualOrders) + 1 : 0;
+        const nextOrder = direction < 0 ? topOrder : bottomOrder;
+        return current.map(area => area.id === areaId ? { ...area, sortMode: "manual", sortOrder: nextOrder } : area);
+      }
+
+      const nextIndex = manualIndex + direction;
+      if (nextIndex < 0 || nextIndex >= manualAreas.length) return current;
+
+      const neighbor = manualAreas[nextIndex];
+      const targetOrder = neighbor.sortOrder ?? nextIndex;
+      const neighborOrder = movingArea.sortOrder ?? manualIndex;
+
       return current.map(area => {
-        if (area.id === currentArea.id) return { ...area, sortOrder: nextArea.sortOrder ?? nextIndex };
-        if (area.id === nextArea.id) return { ...area, sortOrder: currentArea.sortOrder ?? index };
+        if (area.id === movingArea.id) return { ...area, sortMode: "manual", sortOrder: targetOrder };
+        if (area.id === neighbor.id) return { ...area, sortMode: "manual", sortOrder: neighborOrder };
         return area;
       });
     });
@@ -517,7 +561,7 @@ export default function Home() {
   const saveModal = () => { 
     const value = name.trim(); 
     if (modal === "area" && value) { 
-      const next = { id: Date.now(), name: value, subareas: [], lastAccessed: Date.now(), pinned: false, sortOrder: getNextAreaOrder(areas) }; 
+      const next = { id: Date.now(), name: value, subareas: [], lastAccessed: Date.now(), pinned: false, sortMode: "auto" as const }; 
       setAreas(current => [...current, next]); 
       chooseArea(next.id); 
       playSound("dink");
@@ -657,18 +701,20 @@ export default function Home() {
                   let total = 0; let done = 0;
                   area.subareas.forEach(s => { total += s.tasks.length; done += s.tasks.filter(t => t.done || t.archived).length; });
                   const perc = total === 0 ? 0 : Math.round((done/total)*100);
+                  const tone = getAreaTone(area.id);
                   
                   return (
-                    <button type="button" key={area.id} onClick={() => chooseArea(area.id)} className={`group w-full flex flex-col gap-3 rounded-2xl px-5 py-4 text-left transition-all ${activeAreaId === area.id ? "bg-card text-ink shadow-sm border border-line" : "bg-card/50 text-muted hover:bg-card hover:text-ink border border-transparent"}`}>
+                    <button type="button" key={area.id} onClick={() => chooseArea(area.id)} className={`group relative w-full overflow-hidden rounded-2xl px-5 py-4 text-left transition-all ${activeAreaId === area.id ? `${tone.wash} text-ink shadow-sm border ${tone.ring}` : "bg-card/50 text-muted hover:bg-card hover:text-ink border border-transparent"}`}>
+                      <span className={`absolute left-0 top-0 h-full w-1 ${tone.dot} opacity-90`} />
                       <div className="flex items-start gap-3 w-full">
-                        <span className={`mt-1 h-2.5 w-2.5 rounded-full shrink-0 ${activeAreaId === area.id ? "bg-accent" : "bg-muted/50"}`} />
+                        <span className={`mt-1 h-2.5 w-2.5 rounded-full shrink-0 ${activeAreaId === area.id ? tone.dot : "bg-muted/50"}`} />
                         <div className="flex-1 min-w-0 space-y-1.5">
                           <div className="flex items-center justify-between gap-2">
                             <span className="truncate font-semibold">{area.name}</span>
                             <span className="text-[10px] text-muted font-normal bg-page/80 px-2 py-0.5 rounded-full border border-line/50 shrink-0">{total - done} görev</span>
                           </div>
                           <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
-                            {area.pinned && <span className="inline-flex items-center gap-1 rounded-full border border-accent/20 bg-accent/10 px-2 py-0.5 text-accent"><Pin size={10} /> Sabit</span>}
+                            {area.pinned && <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 ${tone.badge}`}><Pin size={10} /> Sabit</span>}
                             <span className="rounded-full border border-line/50 bg-page/70 px-2 py-0.5">Sıra {index + 1}</span>
                           </div>
                         </div>
@@ -676,10 +722,10 @@ export default function Home() {
                       </div>
                       <div className="w-full flex items-center justify-between gap-3">
                         <div className="flex-1 h-1.5 bg-line rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full transition-all duration-1000 ${activeAreaId === area.id ? "bg-accent" : "bg-muted/50"}`} style={{ width: `${perc}%` }} />
+                          <div className={`h-full rounded-full transition-all duration-1000 ${activeAreaId === area.id ? tone.fill : "bg-muted/50"}`} style={{ width: `${perc}%` }} />
                         </div>
                         <div className="flex items-center gap-1">
-                          <button type="button" onClick={event => { event.stopPropagation(); pinArea(area.id); }} className={`rounded-lg border px-2 py-1.5 transition-colors ${area.pinned ? "border-accent/20 bg-accent/10 text-accent" : "border-line bg-page text-muted hover:text-ink hover:bg-hover"}`} title={area.pinned ? "Sabitlemeyi kaldır" : "Yukarı sabitle"}>
+                          <button type="button" onClick={event => { event.stopPropagation(); pinArea(area.id); }} className={`rounded-lg border px-2 py-1.5 transition-colors ${area.pinned ? `${tone.badge}` : "border-line bg-page text-muted hover:text-ink hover:bg-hover"}`} title={area.pinned ? "Sabitlemeyi kaldır" : "Yukarı sabitle"}>
                             <Pin size={12} />
                           </button>
                           <button type="button" onClick={event => { event.stopPropagation(); moveArea(area.id, -1); }} disabled={index === 0} className="rounded-lg border border-line bg-page px-2 py-1.5 text-muted transition-colors hover:text-ink hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40" title="Yukarı taşı">
@@ -714,7 +760,7 @@ export default function Home() {
                       <Empty text="Bu alanda henüz alt alan yok." />
                     ) : (
                       <div className="flex gap-2 overflow-x-auto border-b border-line pb-4 scrollbar">
-                        {activeArea.subareas.map(sub => {
+                        {orderedSubareas.map(sub => {
                           const activeCount = sub.tasks.filter(t => !t.done && !t.archived).length;
                           return (
                             <button type="button" key={sub.id} onClick={() => { setActiveSubId(sub.id); setSubView("tasks"); }} className={`shrink-0 rounded-full px-4 py-2 text-sm font-medium transition-all flex items-center gap-2 ${activeSubId === sub.id ? "bg-accent text-white shadow-md" : "bg-card text-muted hover:bg-hover hover:text-ink border border-line"}`}>
