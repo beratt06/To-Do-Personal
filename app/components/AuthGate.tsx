@@ -1,5 +1,5 @@
 import { FormEvent, useState } from "react";
-import { LockKeyhole } from "lucide-react";
+import { LockKeyhole, Laptop } from "lucide-react";
 import { verifySharedPassword } from "../lib/shared-access";
 
 export default function AuthGate() {
@@ -20,9 +20,6 @@ export default function AuthGate() {
       return;
     }
 
-    // Store granted flag and the plaintext password in sessionStorage (cleared on tab close)
-    // We need the password to call secure RPCs that access shared state; keeping it in
-    // sessionStorage limits exposure compared to persistent localStorage.
     try {
       sessionStorage.setItem("focusflow-shared-password", password);
       window.localStorage.setItem("focusflow-shared-access", "granted");
@@ -31,6 +28,13 @@ export default function AuthGate() {
       console.error("Failed to persist shared access", e);
       setMessage("Giriş işlemi yapılamadı. Tarayıcı izinlerini kontrol et.");
     }
+  };
+
+  const continueOffline = () => {
+    try {
+      window.localStorage.setItem("focusflow-shared-access", "granted");
+      window.location.reload();
+    } catch (e) {}
   };
 
   return (
@@ -47,6 +51,16 @@ export default function AuthGate() {
         <button disabled={busy} className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-4 py-3 font-medium text-white disabled:opacity-60">
           <LockKeyhole size={18} />{busy ? "Bekleyin..." : "Giriş yap"}
         </button>
+
+        <div className="mt-6 border-t border-line/50 pt-4 text-center">
+          <button
+            type="button"
+            onClick={continueOffline}
+            className="inline-flex items-center gap-2 text-xs font-medium text-muted hover:text-ink transition-colors"
+          >
+            <Laptop size={14} /> Çevrimdışı (Yerel Modda) Devam Et
+          </button>
+        </div>
       </form>
     </main>
   );

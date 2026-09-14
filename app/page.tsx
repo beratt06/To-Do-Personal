@@ -175,10 +175,24 @@ export default function Home() {
   const orderedAreas = useMemo(() => sortAreas(areas), [areas]);
 
   useEffect(() => {
-    const granted = typeof window !== "undefined" && window.localStorage.getItem("focusflow-shared-access") === "granted";
-    setSharedAccessGranted(granted);
-    if (granted) {
+    const isReset = typeof window !== "undefined" && window.location.search.includes("resetPassword=true");
+    if (isReset) {
+      try {
+        window.localStorage.setItem("focusflow-shared-access", "granted");
+        window.localStorage.removeItem("focusflow-password-hash");
+        window.localStorage.removeItem("focusflow-password");
+        window.localStorage.removeItem("focusflow-pin");
+      } catch (e) {}
+      setSharedAccessGranted(true);
       setSyncReady(true);
+      setIsLocked(false);
+      setHasPin(false);
+    } else {
+      const granted = typeof window !== "undefined" && window.localStorage.getItem("focusflow-shared-access") === "granted";
+      setSharedAccessGranted(granted);
+      if (granted) {
+        setSyncReady(true);
+      }
     }
   }, []);
 
