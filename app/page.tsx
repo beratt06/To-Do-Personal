@@ -319,10 +319,19 @@ export default function Home() {
     setTheme(savedTheme); 
     document.documentElement.classList.toggle("light", savedTheme === "light"); 
     const savedAreas = localStorage.getItem("focusflow-areas"); 
-    const pwd = localStorage.getItem("focusflow-password-hash") || localStorage.getItem("focusflow-password") || localStorage.getItem("focusflow-pin");
-    if (pwd) {
-      setIsLocked(true);
-      setHasPin(true);
+    const isResetRequested = typeof window !== "undefined" && window.location.search.includes("resetPassword=true");
+    if (isResetRequested) {
+      localStorage.removeItem("focusflow-password-hash");
+      localStorage.removeItem("focusflow-password");
+      localStorage.removeItem("focusflow-pin");
+      setIsLocked(false);
+      setHasPin(false);
+    } else {
+      const pwd = localStorage.getItem("focusflow-password-hash") || localStorage.getItem("focusflow-password") || localStorage.getItem("focusflow-pin");
+      if (pwd) {
+        setIsLocked(true);
+        setHasPin(true);
+      }
     }
     if (savedAreas) { 
       try {
