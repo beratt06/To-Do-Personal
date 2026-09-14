@@ -23,6 +23,7 @@ export default function AuthGate() {
     try {
       sessionStorage.setItem("focusflow-shared-password", password);
       window.localStorage.setItem("focusflow-shared-access", "granted");
+      window.localStorage.removeItem("focusflow-offline-mode");
       window.location.reload();
     } catch (e) {
       console.error("Failed to persist shared access", e);
@@ -32,8 +33,9 @@ export default function AuthGate() {
 
   const continueOffline = () => {
     try {
+      window.localStorage.setItem("focusflow-offline-mode", "true");
       window.localStorage.setItem("focusflow-shared-access", "granted");
-      window.location.reload();
+      window.location.href = window.location.pathname;
     } catch (e) {}
   };
 
