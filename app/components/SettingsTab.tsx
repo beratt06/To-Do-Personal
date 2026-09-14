@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { Download, Upload, RotateCcw, ShieldCheck, CheckCircle2, Lock, KeyRound, Trash2 } from "lucide-react";
+import { Download, Upload, RotateCcw, ShieldCheck, CheckCircle2, Lock } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import PinLockModal from "./PinLockModal";
 import { applyCloudData, readCloudData } from "../lib/cloud-storage";
 
 type Area = any; 
@@ -14,19 +13,11 @@ type BackupLog = {
 export default function SettingsTab({ areas, setAreas }: { areas: Area[], setAreas: (areas: Area[]) => void }) {
   const [backups, setBackups] = useState<BackupLog[]>([]);
   const [toastMsg, setToastMsg] = useState("");
-  const [hasPin, setHasPin] = useState(false);
-  const [showPinModal, setShowPinModal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadBackups();
-    checkPinStatus();
   }, []);
-
-  const checkPinStatus = () => {
-    const pwd = localStorage.getItem("focusflow-password-hash") || localStorage.getItem("focusflow-password") || localStorage.getItem("focusflow-pin");
-    setHasPin(Boolean(pwd));
-  };
 
   const loadBackups = () => {
     try {
@@ -113,16 +104,6 @@ export default function SettingsTab({ areas, setAreas }: { areas: Area[], setAre
     reader.readAsText(file);
   };
 
-  const removePin = () => {
-    if (confirm("Şifre korumasını kaldırmak istediğinize emin misiniz?")) {
-      localStorage.removeItem("focusflow-password-hash");
-      localStorage.removeItem("focusflow-password");
-      localStorage.removeItem("focusflow-pin");
-      checkPinStatus();
-      showToast("Şifre koruması kaldırıldı.");
-    }
-  };
-
   return (
     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="max-w-4xl mx-auto space-y-8 pb-20">
       <AnimatePresence>
@@ -133,18 +114,6 @@ export default function SettingsTab({ areas, setAreas }: { areas: Area[], setAre
           </motion.div>
         )}
       </AnimatePresence>
-
-      {showPinModal && (
-        <PinLockModal
-          mode={hasPin ? "change" : "setup"}
-          onSuccess={() => {
-            setShowPinModal(false);
-            checkPinStatus();
-            showToast(hasPin ? "Şifre değiştirildi!" : "Şifre koruması aktif edildi!");
-          }}
-          onCancel={() => setShowPinModal(false)}
-        />
-      )}
 
       <div>
         <p className="text-sm font-medium text-accent">Ayarlar & Güvenlik</p>
@@ -158,26 +127,19 @@ export default function SettingsTab({ areas, setAreas }: { areas: Area[], setAre
       <section className="rounded-2xl border border-line bg-card p-6 shadow-sm">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-xl ${hasPin ? 'bg-success/10 text-success' : 'bg-warning/10 text-warning'}`}>
+            <div className="p-2.5 rounded-xl bg-success/10 text-success">
               <Lock size={22} />
             </div>
             <div>
               <h2 className="text-lg font-bold">Özel Şifre Koruması</h2>
               <p className="text-xs text-muted">
-                {hasPin ? "Uygulamanız belirlediğiniz özel şifre ile korunuyor." : "Henüz bir şifre koymadınız. Herkes uygulamanızı açabilir."}
+                Ortak parola Supabase üzerinde aktif.
               </p>
             </div>
           </div>
           
-          <div className="flex items-center gap-2">
-            {hasPin && (
-              <button type="button" onClick={removePin} className="flex items-center gap-1.5 rounded-xl border border-line bg-page px-3.5 py-2 text-xs font-medium text-danger hover:bg-danger/10 transition-colors">
-                <Trash2 size={14} /> Kaldır
-              </button>
-            )}
-            <button type="button" onClick={() => setShowPinModal(true)} className="flex items-center gap-2 rounded-xl bg-accent px-4 py-2 text-xs font-medium text-white shadow-md hover:bg-accent-hover transition-all">
-              <KeyRound size={14} /> {hasPin ? "Şifre Değiştir" : "Şifre Koy"}
-            </button>
+          <div className="text-sm text-muted">
+            Ortak parola Supabase üzerinde ayarlı — yerel şifre yönetimi devre dışı bırakıldı.
           </div>
         </div>
       </section>

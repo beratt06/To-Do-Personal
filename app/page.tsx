@@ -168,7 +168,6 @@ export default function Home() {
   const [isLoaded, setIsLoaded] = useState(false);
   const [isLocked, setIsLocked] = useState(false);
   const [hasPin, setHasPin] = useState(false);
-  const [isOfflineMode, setIsOfflineMode] = useState(false);
   const [authChecked, setAuthChecked] = useState(!isSupabaseConfigured);
   const [session, setSession] = useState<Session | null>(null);
   const [syncReady, setSyncReady] = useState(!isSupabaseConfigured);
@@ -176,31 +175,10 @@ export default function Home() {
   const orderedAreas = useMemo(() => sortAreas(areas), [areas]);
 
   useEffect(() => {
-    const isReset = typeof window !== "undefined" && window.location.search.includes("resetPassword=true");
-    const isOffline = typeof window !== "undefined" && window.localStorage.getItem("focusflow-offline-mode") === "true";
-
-    if (isReset || isOffline) {
-      try {
-        window.localStorage.setItem("focusflow-offline-mode", "true");
-        window.localStorage.setItem("focusflow-shared-access", "granted");
-        if (isReset) {
-          window.localStorage.removeItem("focusflow-password-hash");
-          window.localStorage.removeItem("focusflow-password");
-          window.localStorage.removeItem("focusflow-pin");
-          window.history.replaceState({}, document.title, window.location.pathname);
-        }
-      } catch (e) {}
-      setIsOfflineMode(true);
-      setSharedAccessGranted(true);
+    const granted = typeof window !== "undefined" && window.localStorage.getItem("focusflow-shared-access") === "granted";
+    setSharedAccessGranted(granted);
+    if (granted) {
       setSyncReady(true);
-      setIsLocked(false);
-      setHasPin(false);
-    } else {
-      const granted = typeof window !== "undefined" && window.localStorage.getItem("focusflow-shared-access") === "granted";
-      setSharedAccessGranted(granted);
-      if (granted) {
-        setSyncReady(true);
-      }
     }
   }, []);
 
@@ -240,7 +218,7 @@ export default function Home() {
       return;
     }
 
-    if (!session && sharedAccessGranted && !isOfflineMode) {
+    if (!session && sharedAccessGranted) {
       let cancelled = false;
       const prepareSharedData = async () => {
         setSyncReady(false);
@@ -645,7 +623,7 @@ export default function Home() {
   }, [month]);
 
   if (!syncReady) {
-    if (isSupabaseConfigured && authChecked && !session && !sharedAccessGranted && !isOfflineMode) return <AuthGate />;
+    if (isSupabaseConfigured && authChecked && !session && !sharedAccessGranted) return <AuthGate />;
     return <main className="grid min-h-screen place-items-center bg-page text-muted">Veriler hazırlanıyor...</main>;
   }
 
