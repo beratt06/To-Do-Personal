@@ -18,7 +18,7 @@ import { isSupabaseConfigured, supabase } from "./lib/supabase";
 type Priority = "low" | "medium" | "high";
 type Task = { id: number; text: string; dueDate?: string; dueDates?: string[]; done: boolean; archived?: boolean; completedAt?: string; priority?: Priority; noteHTML?: string };
 type SubArea = { id: number; name: string; tasks: Task[]; noteHTML?: string };
-type Area = { id: number; name: string; subareas: SubArea[]; lastAccessed?: number; pinned?: boolean; sortOrder?: number; sortMode?: "auto" | "manual" };
+type Area = { id: number; name: string; subareas: SubArea[]; lastAccessed?: number; pinned?: boolean; sortOrder?: number; sortMode?: "auto" | "manual"; archived?: boolean };
 type Tab = "dashboard" | "areas" | "calendar" | "archive" | "notes" | "applications" | "roadmaps" | "settings";
 type Modal = "area" | "subarea" | "task" | "day" | null;
 
@@ -101,11 +101,10 @@ const playSound = (type: "pop" | "dink" | "delete" = "dink") => {
     const ctx = new AudioContext();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
+    osc.connect(gain); gain.connect(ctx.destination);
     const now = ctx.currentTime;
     if (type === "pop") {
-      osc.type = "sine"; osc.frequency.setValueAtTime(600, now); osc.frequency.exponentialRampToValueAtTime(800, now + 0.1);
+      osc.type = "sine"; osc.frequency.setValueAtTime(400, now); osc.frequency.exponentialRampToValueAtTime(800, now + 0.1);
       gain.gain.setValueAtTime(0.3, now); gain.gain.exponentialRampToValueAtTime(0.01, now + 0.1);
       osc.start(now); osc.stop(now + 0.1);
     } else if (type === "dink") {
@@ -127,6 +126,7 @@ function migrateAreas(value: unknown): Area[] {
     name: area.name,
     lastAccessed: area.lastAccessed || (Date.now() - index * 1000), // preserve order for old data
     pinned: Boolean(area.pinned),
+    archived: Boolean(area.archived),
     sortOrder: typeof area.sortOrder === "number" ? area.sortOrder : undefined,
     sortMode: area.sortMode === "manual" || typeof area.sortOrder === "number" ? "manual" : "auto",
     subareas: (area.subareas || [{ id: Date.now(), name: "Genel", tasks: area.tasks || [] }]).map((sub: any) => ({
@@ -173,6 +173,8 @@ export default function Home() {
   const [syncReady, setSyncReady] = useState(!isSupabaseConfigured);
   const [sharedAccessGranted, setSharedAccessGranted] = useState(false);
   const orderedAreas = useMemo(() => sortAreas(areas), [areas]);
+  const activeAreas = useMemo(() => sortAreas(areas.filter(a => !a.archived)), [areas]);
+  const archivedAreas = useMemo(() => sortAreas(areas.filter(a => a.archived)), [areas]);
 
   useEffect(() => {
     const granted = typeof window !== "undefined" && window.localStorage.getItem("focusflow-shared-access") === "granted";
@@ -290,7 +292,7 @@ export default function Home() {
     return () => { cancelled = true; };
   }, [session, sharedAccessGranted]);
 
-  const activeArea = areas.find(area => area.id === activeAreaId) || orderedAreas[0]; 
+  const activeArea = activeAreas.find(area => area.id === activeAreaId) || activeAreas[0]; 
   const orderedSubareas = useMemo(() => sortSubareas(activeArea?.subareas || []), [activeArea]);
   const activeSub = orderedSubareas.find(sub => sub.id === activeSubId) || orderedSubareas[0];
   
@@ -310,8 +312,8 @@ export default function Home() {
       });
   }, [activeSub]);
 
-  const archivedTasks = useMemo(() => orderedAreas.flatMap(area => area.subareas.flatMap(sub => sub.tasks.filter(task => task.archived).map(task => ({ ...task, areaName: area.name, subName: sub.name })))).sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")), [orderedAreas]);
-  const allActiveTasks = useMemo(() => orderedAreas.flatMap(area => area.subareas.flatMap(sub => sub.tasks.filter(task => !task.archived).map(task => ({ ...task, areaName: area.name, subName: sub.name })))), [orderedAreas]);
+  const archivedTasks = useMemo(() => areas.flatMap(area => area.subareas.flatMap(sub => sub.tasks.filter(task => task.archived).map(task => ({ ...task, areaName: area.name, subName: sub.name })))).sort((a, b) => (b.completedAt || "").localeCompare(a.completedAt || "")), [areas]);
+  const allActiveTasks = useMemo(() => activeAreas.flatMap(area => area.subareas.flatMap(sub => sub.tasks.filter(task => !task.archived).map(task => ({ ...task, areaName: area.name, subName: sub.name })))), [activeAreas]);
 
   useEffect(() => { 
     if (!syncReady) return;
@@ -488,12 +490,32 @@ export default function Home() {
     notify("Görev silindi");
   };
 
+  const archiveArea = (areaId: number) => {
+    playSound("dink");
+    setAreas(current => {
+      const next = current.map(a => a.id === areaId ? { ...a, archived: true } : a);
+      const nextActive = sortAreas(next.filter(a => !a.archived));
+      if (activeAreaId === areaId) {
+        setActiveAreaId(nextActive[0]?.id || 0);
+        setActiveSubId(nextActive[0]?.subareas[0]?.id || 0);
+      }
+      return next;
+    });
+    notify("Çalışma alanı arşivlendi");
+  };
+
+  const unarchiveArea = (areaId: number) => {
+    playSound("dink");
+    setAreas(current => current.map(a => a.id === areaId ? { ...a, archived: false } : a));
+    notify("Çalışma alanı geri yüklendi");
+  };
+
   const deleteArea = (areaId: number) => {
     if (!confirm("Bu çalışma alanını ve içindeki her şeyi silmek istediğine emin misin?")) return;
     playSound("delete");
     setAreas(current => {
       const next = current.filter(a => a.id !== areaId);
-      const nextSorted = sortAreas(next);
+      const nextSorted = sortAreas(next.filter(a => !a.archived));
       if (activeAreaId === areaId) {
         setActiveAreaId(nextSorted[0]?.id || 0);
         setActiveSubId(nextSorted[0]?.subareas[0]?.id || 0);
@@ -706,7 +728,7 @@ export default function Home() {
             
             <div className="grid gap-8 lg:grid-cols-[280px_1fr]">
               <aside className="space-y-3">
-                {orderedAreas.map((area, index) => {
+                {activeAreas.map((area, index) => {
                   let total = 0; let done = 0;
                   area.subareas.forEach(s => { total += s.tasks.length; done += s.tasks.filter(t => t.done || t.archived).length; });
                   const perc = total === 0 ? 0 : Math.round((done/total)*100);
@@ -737,10 +759,13 @@ export default function Home() {
                           <button type="button" onClick={event => { event.stopPropagation(); pinArea(area.id); }} className={`rounded-lg border px-2 py-1.5 transition-colors ${area.pinned ? `${tone.badge}` : "border-line bg-page text-muted hover:text-ink hover:bg-hover"}`} title={area.pinned ? "Sabitlemeyi kaldır" : "Yukarı sabitle"}>
                             <Pin size={12} />
                           </button>
+                          <button type="button" onClick={event => { event.stopPropagation(); archiveArea(area.id); }} className="rounded-lg border border-line bg-page px-2 py-1.5 text-muted transition-colors hover:text-ink hover:bg-hover" title="Alanı Arşivle">
+                            <ArchiveIcon size={12} />
+                          </button>
                           <button type="button" onClick={event => { event.stopPropagation(); moveArea(area.id, -1); }} disabled={index === 0} className="rounded-lg border border-line bg-page px-2 py-1.5 text-muted transition-colors hover:text-ink hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40" title="Yukarı taşı">
                             <ArrowUp size={12} />
                           </button>
-                          <button type="button" onClick={event => { event.stopPropagation(); moveArea(area.id, 1); }} disabled={index === orderedAreas.length - 1} className="rounded-lg border border-line bg-page px-2 py-1.5 text-muted transition-colors hover:text-ink hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40" title="Aşağı taşı">
+                          <button type="button" onClick={event => { event.stopPropagation(); moveArea(area.id, 1); }} disabled={index === activeAreas.length - 1} className="rounded-lg border border-line bg-page px-2 py-1.5 text-muted transition-colors hover:text-ink hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40" title="Aşağı taşı">
                             <ArrowDown size={12} />
                           </button>
                         </div>
@@ -757,6 +782,7 @@ export default function Home() {
                       <div>
                         <h2 className="text-2xl font-bold flex items-center gap-2">
                           {activeArea.name}
+                          <button type="button" onClick={() => archiveArea(activeArea.id)} className="rounded p-1 text-muted hover:bg-hover hover:text-ink transition-colors" title="Alanı Arşivle"><ArchiveIcon size={16} /></button>
                           <button type="button" onClick={() => deleteArea(activeArea.id)} className="rounded p-1 text-muted hover:bg-danger-subtle hover:text-danger transition-colors" title="Alanı Sil"><Trash2 size={16} /></button>
                         </h2>
                       </div>
@@ -870,7 +896,7 @@ export default function Home() {
         
         {tab === "archive" && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-            <Archive tasks={archivedTasks} onDelete={deleteTask} />
+            <Archive tasks={archivedTasks} onDelete={deleteTask} archivedAreas={archivedAreas} onUnarchiveArea={unarchiveArea} onDeleteArea={deleteArea} />
           </motion.div>
         )}
         
@@ -1056,39 +1082,105 @@ function CalendarGrid({ days, month, setMonth, tasks, full = false, onDayClick }
   ); 
 }
 
-function Archive({ tasks, onDelete }: { tasks: Array<Task & { areaName: string; subName: string }>; onDelete: (id: number) => void }) { 
+function Archive({ 
+  tasks, 
+  onDelete, 
+  archivedAreas, 
+  onUnarchiveArea, 
+  onDeleteArea 
+}: { 
+  tasks: Array<Task & { areaName: string; subName: string }>; 
+  onDelete: (id: number) => void;
+  archivedAreas: Area[];
+  onUnarchiveArea: (id: number) => void;
+  onDeleteArea: (id: number) => void;
+}) { 
   return (
-    <section>
-      <div className="mb-10">
-        <p className="text-sm font-medium text-accent">Görev geçmişi</p>
+    <section className="space-y-10">
+      <div>
+        <p className="text-sm font-medium text-accent">Geçmiş ve Arşiv</p>
         <h1 className="mt-1 text-4xl font-bold tracking-tight">Arşiv</h1>
       </div>
       
-      {tasks.length === 0 ? (
-        <Empty text="Henüz arşivlenmiş görev yok." />
-      ) : (
-        <div className="space-y-3">
-          {tasks.map(task => (
-            <div key={task.id} className="flex flex-col gap-2 rounded-xl border border-line bg-card px-5 py-4 sm:flex-row sm:items-center sm:gap-4">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent border border-accent/20">
-                <Check size={14} strokeWidth={3} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-ink line-through opacity-80">{task.text}</p>
-                <p className="mt-1 text-xs font-medium text-muted">{task.areaName} / {task.subName}</p>
+      {/* Archived Areas */}
+      <div>
+        <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-ink">
+          <span>Arşivlenmiş Çalışma Alanları</span>
+          <span className="text-xs bg-line px-2.5 py-0.5 rounded-full text-muted">{archivedAreas.length}</span>
+        </h2>
+        
+        {archivedAreas.length === 0 ? (
+          <Empty text="Arşivlenmiş çalışma alanı bulunmuyor." />
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {archivedAreas.map(area => {
+              const taskCount = area.subareas.reduce((c, s) => c + s.tasks.length, 0);
+              return (
+                <div key={area.id} className="flex items-center justify-between gap-4 rounded-xl border border-line bg-card p-5 shadow-sm">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-semibold text-ink truncate">{area.name}</h3>
+                    <p className="mt-1 text-xs text-muted">
+                      {area.subareas.length} alt alan • {taskCount} görev
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button 
+                      type="button" 
+                      onClick={() => onUnarchiveArea(area.id)} 
+                      className="rounded-lg border border-line bg-page px-3 py-1.5 text-xs font-medium text-muted transition-colors hover:text-ink hover:bg-hover"
+                      title="Geri Yükle"
+                    >
+                      Geri Yükle
+                    </button>
+                    <button 
+                      type="button" 
+                      onClick={() => onDeleteArea(area.id)} 
+                      className="flex items-center justify-center rounded-lg bg-danger-subtle p-2 text-danger transition-colors hover:bg-danger hover:text-white" 
+                      title="Kalıcı Olarak Sil"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Archived Tasks */}
+      <div>
+        <h2 className="text-xl font-bold mb-4 flex items-center gap-2 text-ink">
+          <span>Arşivlenmiş Görevler</span>
+          <span className="text-xs bg-line px-2.5 py-0.5 rounded-full text-muted">{tasks.length}</span>
+        </h2>
+
+        {tasks.length === 0 ? (
+          <Empty text="Henüz arşivlenmiş görev yok." />
+        ) : (
+          <div className="space-y-3">
+            {tasks.map(task => (
+              <div key={task.id} className="flex flex-col gap-2 rounded-xl border border-line bg-card px-5 py-4 sm:flex-row sm:items-center sm:gap-4">
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/10 text-accent border border-accent/20">
+                  <Check size={14} strokeWidth={3} />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-ink line-through opacity-80">{task.text}</p>
+                  <p className="mt-1 text-xs font-medium text-muted">{task.areaName} / {task.subName}</p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <time className="shrink-0 text-xs font-medium text-faint">
+                    {task.completedAt ? formatDate(task.completedAt.slice(0, 10)) : "Arşivlendi"}
+                  </time>
+                  <button type="button" onClick={() => onDelete(task.id)} className="flex items-center justify-center rounded-lg bg-danger-subtle px-2 py-1.5 text-danger transition-colors hover:bg-danger hover:text-white" title="Kalıcı Olarak Sil">
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </div>
-              <div className="flex items-center gap-3">
-                <time className="shrink-0 text-xs font-medium text-faint">
-                  {task.completedAt ? formatDate(task.completedAt.slice(0, 10)) : "Arşivlendi"}
-                </time>
-                <button type="button" onClick={() => onDelete(task.id)} className="flex items-center justify-center rounded-lg bg-danger-subtle px-2 py-1.5 text-danger transition-colors hover:bg-danger hover:text-white" title="Kalıcı Olarak Sil">
-                  <Trash2 size={14} />
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
     </section>
   ); 
 }
