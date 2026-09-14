@@ -44,6 +44,15 @@ export default function PasswordLockModal({ mode, onSuccess, onCancel }: Passwor
     return () => clearInterval(timer);
   }, [lockoutRemaining]);
 
+  const handleResetPassword = () => {
+    if (confirm("Şifrenizi sıfırlamak istediğinize emin misiniz? Şifre koruması kaldırılacaktır. (Notlarınız ve verileriniz kesinlikle silinmez).")) {
+      localStorage.removeItem("focusflow-password-hash");
+      localStorage.removeItem("focusflow-password");
+      localStorage.removeItem("focusflow-pin");
+      onSuccess();
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
@@ -206,6 +215,18 @@ export default function PasswordLockModal({ mode, onSuccess, onCancel }: Passwor
             {mode === "unlock" ? "Giriş Yap" : step === "verify_current" ? "Şifreyi Onayla" : step === "enter_new" ? "Devam Et" : "Şifreyi Kaydet"}
           </button>
         </div>
+
+        {mode === "unlock" && (
+          <div className="mt-4 border-t border-line/50 pt-3">
+            <button
+              type="button"
+              onClick={handleResetPassword}
+              className="text-xs text-muted hover:text-danger underline transition-colors"
+            >
+              Şifremi Unuttum (Korumayı Sıfırla)
+            </button>
+          </div>
+        )}
       </motion.form>
     </motion.div>
   );
